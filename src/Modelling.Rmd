@@ -1,0 +1,383 @@
+---
+  title: "613Project"
+output:
+  word_document: default
+html_document: default
+---
+  
+  Steps Performed:
+  
+  Understanding the data.
+Finding missing values.
+
+Separate categorical and numerical.
+univariate analysis.
+checking the distribution of each variable in numerical data.
+checking the correlation for numerical data.
+checking the frequency for categorical data.
+
+
+
+
+
+Data contains 34 variables.
+
+Household_ID ->	Unique identifier for each household.
+Vehicle	-> Unique identifier for each vehicle within a household.
+Calendar_Year ->	Calendar year during which vehicle was insured ,years:2005,2006,2007.
+Model_Year ->	Model year of vehicle ,29levels->1981 to 2009
+Blind_Make ->	Vehicle make(example: ACME, coded A)
+Blind_Model ->	Vehicle model(example: ACME Roadster, coded A.1)
+Blind_Submodel ->	Vehicle submodel (example: ACME Roadster LS, coded A.1.1) e.g. no suffix after the model name--submodel is coded as 0.
+
+Categorical vehicle variable -> cat1 to cat12
+Ordered categorical vehicle variable -> OrdCat 
+Continuous vehicle variable, mean 0 stdev 1 -> Var1 to Var7
+Categorical non-vehicle variable -> NVCat
+Continuous non-vehicle variable, mean 0 stdev 1	-> NVVar1 to NVVar4
+
+#SETTING THE PATH AND READING TRAINING DATA
+
+```{r}
+
+Path="C:/Users/Ali/Documents/GitHub/613Project/Project"
+setwd(Path)
+
+train<-read.csv("train_set0506.csv")
+test<- read.csv("test_set07.csv") #Reading the data
+
+data<-rbind(train,test)
+
+attach(data)     #attach the dataset ,we can call the variables directly without dataframe name.
+names(data)   #column names of the data
+```
+
+#CHECKING THE DATATYPES
+
+```{r}
+str(data) #structure of the data
+```
+
+#CHECKING THE SUMMARY OF DATA
+```{r}
+summary(data) #structure of the data
+data$OrdCat<- as.factor(data$OrdCat)
+```
+
+#CHECKING CLAIM AMOUNT INSTANCES
+
+```{r}
+#Claim_Amount
+#table(Claim_Amount)   #Claim_Amount frequency
+prop.table(table(Claim_Amount)) #Claim_Amount frequency percentage.
+```
+
+
+
+
+distribution of target variable
+```{r}
+# Density and rug  
+d <- density(Claim_Amount)
+plot(d, type="n", main="Claim_Amount")
+polygon(d, col="lightgray", border="gray")
+rug(Claim_Amount, col="red")
+```
+
+
+# SEPERATE NUMERICAL AND CATEGORICAL DATA
+
+```{r}
+factors <- sapply(data, is.factor) #checking the variable is a factor
+vars_categ <- data[, factors]      #taking only factor variables
+names(vars_categ)
+vars_numeric <- data[,!factors]    #taking only numerical variables
+names(vars_numeric)
+```
+17-categorical
+18-Numerical
+
+#CHECKING UNIQUE HOUSEHLDIDS AND ROW IDs
+
+```{r}
+length(unique(Household_ID)) #unique Household_ID
+length(unique(Row_ID)) #unique Row_ID
+```
+
+#REMOVING ROW IDs
+
+```{r}
+#Removing rowId
+vars_numeric <- vars_numeric[, -which(names(vars_numeric) %in% c("Row_ID"))]
+
+```
+
+
+```{r}
+length(Household_ID[duplicated(Household_ID)]) #duplicated records
+
+```
+
+
+
+#Saving Raw numeric and categorical data
+```{r}
+
+write.csv(vars_numeric,paste0(Path,'/test_data_files/raw_numerical.csv',row.names=FALSE))
+write.csv(vars_categ,paste0(Path,'/test_data_files/raw_categorical.csv',row.names=FALSE))
+```
+
+
+
+
+
+## Cleaning Data : Replace blank with ? and then impute missing values : Numerical-> Mean and Categorical-> mode
+
+
+
+Preprocessing steps:
+loading categorical data.
+rename the factor levels for Cat12.
+created rowSums of missing values for cat1 to cat12.
+checking the % of missing values in the data.
+impute the missing values with mode imputation.
+split the columns Blind_Model and Blind_subModel to get Vehicle details.
+creaed dummy variables for cat1 to cat12.
+find linear combos and remove it.
+categorical encoding.
+saving the file.
+
+
+
+Reading the categorical data
+
+```{r}
+
+vars_categ <- read.csv(paste0(Path,"/test_data_files/raw_categorical.csv")) #Reading the data
+names(vars_categ)   #column names of the categorical data
+```
+
+
+```{r}
+str(vars_categ)
+```
+
+#rename the factor levels for Cat12 ->space with ?
+```{r}
+#vars_categ[vars_categ=="?"] 
+table(vars_categ$Cat12)
+levels(vars_categ$Cat12)
+levels(vars_categ$Cat12)[levels(vars_categ$Cat12)==""] <- "?"
+levels(vars_categ$Cat12)
+table(vars_categ$Cat12)
+```
+
+
+#Adding the missing values in row-wise for columns Cat 1 to 12 and Ord_Cat and NV_Cat and made a new column with cat1_12_NAcount
+
+```{r}
+Cat1_12_NAcount <- data.frame(Cat1_12_NAcount=apply(vars_categ[,5:18],1,function(x) sum(x=='?')))
+vars_categ <- cbind(vars_categ,Cat1_12_NAcount=Cat1_12_NAcount)
+table(vars_categ$Cat1_12_NAcount)
+```
+
+
+#Again Adding the missing values in row-wise for columns Blind_Make,Blind_Model,Blind_Submodel.
+
+```{r}
+Blind1_3_NAcount <- data.frame(Blind1_3_NAcount=apply(vars_categ[,2:4],1,function(x) sum(x=='?')))
+vars_categ <- cbind(vars_categ,Blind1_3_NAcount=Blind1_3_NAcount)
+table(vars_categ$Blind1_3_NAcount)
+```
+
+
+#Imputing the missing categorical data 
+
+```{r}
+vars_categ[vars_categ=="?"] <- NA
+apply(vars_categ,2,function(x) sum(is.na(x)))
+sum(is.na(vars_categ))
+source(paste0(Path,'/scripts/utilities/Imputation.R')) #Imputing Value
+vars_categ_imp <- Imputation(vars_categ)
+sum(is.na(vars_categ_imp))
+```
+
+
+#Split the column Blind_Model into 2 parts
+```{r}
+Blind_Model_split<- strsplit(as.character(vars_categ$Blind_Model),'.',fixed = T)
+Blind_Model_split<- do.call(rbind, Blind_Model_split)
+head(Blind_Model_split)
+```
+
+
+#Split the column Blind_Submodel into 3 parts
+```{r}
+Blind_Submodel_split<- strsplit(as.character(vars_categ$Blind_Submodel),'.',fixed = T)
+Blind_Submodel_split<- do.call(rbind, Blind_Submodel_split)
+head(Blind_Submodel_split)
+```
+
+#Converting into dataframe and changing column names
+```{r}
+Blind_Submodel_split <- data.frame(Blind_Submodel_split)
+names(Blind_Submodel_split) <- c('Vehicle_make','Vehicle_model','Vehicle_submodel')
+head(Blind_Submodel_split)
+```
+
+#Writing Vehicle details and Categorical important variables
+```{r}
+write.csv(Blind_Submodel_split,paste0(Path,'/test_data_files/vehical_details.csv',row.names = F))
+write.csv(vars_categ_imp,paste0(Path,'/test_data_files/vars_categ_imp.csv',row.names = F))
+```
+
+
+#creating dummy(binary levels) values for cat1 to cat12, NV-Cat and Ord_Cat
+
+```{r}
+library(dummies)
+vars_categ_dummy <- dummy.data.frame(vars_categ[,c(5:18)], sep = ".")
+```
+
+# Writing Dummy values
+```{r}
+write.csv(vars_categ_dummy,paste0(Path,'/test_data_files/vars_categ_dummy.csv',row.names = F))
+```
+
+# Removing the linear dependencies after creating binary values:
+```{r}
+library(caret)
+Linear_comb <- findLinearCombos(vars_categ_dummy)
+#Linear_comb
+```
+
+# Writing Dummy categorical values 
+```{r}
+write.csv(vars_categ_dummy[,-Linear_comb$remove],paste0(Path,'/test_data_files/vars_categ_dummy_witoutlineardep.csv',row.names = F))
+cat_data_binary<-vars_categ_dummy[,-Linear_comb$remove]
+```
+
+# Categorical encoding 
+```{r}
+source(paste0(Path,'/scripts/utilities/Data_encoding.R'))
+cat <- Data_encoding(vars_categ_imp[,5:18])
+```
+
+#Writing Categorical encoded files
+```{r}
+write.csv(cat,paste0(Path,'/test_data_files/categ_encoding.csv',row.names = F))
+```
+
+
+# Handling Continuous Variables
+
+Preprocessing steps:
+loading numerical data.
+checking the skewness.
+scale and normalized the data.
+
+```{r}
+
+numeric_data <- read.csv(paste0(Path,"/test_data_files/raw_numerical.csv")) #Reading the data
+head(numeric_data)
+```
+
+
+```{r}
+sum(is.na(Blind_Submodel_split))
+source(paste0(Path,'/scripts/utilities/Imputation.R'))  #reading plots function
+Blind_Submodel_split <- Imputation(Blind_Submodel_split)
+sum(is.na(Blind_Submodel_split))
+
+```
+
+#Combining Catrgorical binary level(Dummy variables) and Numerical Data
+```{r}
+variable_for_PCA<- cbind(cat_data_binary,vars_numeric[,c(5:16)])
+source(paste0(Path,"/scripts/utilities/PCA.R"))
+PCA_components<-PCAfun(variable_for_PCA)
+
+comb_data<-cbind(numeric_data[,c(1:3)],PCA_components,Claim_Amount=numeric_data[,"Claim_Amount"]) # Combining all 3 data
+comb_data$Household_ID<-NULL
+comb_data$Calendar_Year<-NULL
+
+```
+
+```{r}
+comb_data$Claim_Amount <- as.factor(ifelse(comb_data$Claim_Amount > 0,1,0))
+comb_data<- comb_data[c(ncol(comb_data),1:(ncol(comb_data)-1))]
+head(comb_data)
+```
+
+
+
+```{r}
+
+finaltrain <- comb_data[c(1:100000),]
+finaltest <- comb_data[c(100001:150000),]
+sum(finaltrain$Claim_Amount)
+sum(finaltest$Claim_Amount)
+```
+
+```{r}
+summary(finaltrain)
+summary(finaltest)
+
+```
+
+```{r}
+
+#install.packages("ROSE")
+library(ROSE)
+
+table(finaltrain$Claim_Amount)
+
+#over sampling
+comb_data_balanced_over <- ovun.sample(Claim_Amount ~ ., data = finaltrain, method = "over", p=0.5, seed=1)$data
+table(comb_data_balanced_over$Claim_Amount)
+
+#under sampling
+comb_data_balanced_under <- ovun.sample(Claim_Amount ~ ., data = finaltrain, method = "under", N = 1440, seed = 1)$data
+table(comb_data_balanced_under$Claim_Amount)
+
+#Both sampling
+comb_data_balanced_both <- ovun.sample(Claim_Amount ~ ., data = finaltrain, method = "both",  p=0.5)$data
+table(comb_data_balanced_both$Claim_Amount)
+
+#Synthetic sampling
+comb_data_balanced_synt <- ROSE(Claim_Amount ~ ., data = finaltrain, seed = 1)$data
+table(comb_data_balanced_synt$Claim_Amount)
+
+sampling<-list(comb_data_balanced_both)
+
+
+```
+
+
+#Using the mlr library to get classifiers
+
+```{r}
+library(mlr)
+for (i in 1:length(sampling)){
+train<-comb_data_balanced_both
+test<-finaltest
+head(train)
+
+#create a task
+traintask <- makeClassifTask(data = data.frame(train),target = "Claim_Amount") 
+testtask <- makeClassifTask(data = data.frame(test),target = "Claim_Amount")
+
+#set 5 fold cross validation
+rdesc <- makeResampleDesc("CV",iters=5)
+
+#make randomForest learner
+rf.lrn <- makeLearner("classif.randomForest")
+rf.lrn$par.vals <- list(ntree = 100, importance=TRUE)
+result <- resample(learner = rf.lrn, task = traintask, resampling = rdesc, measures = list(tpr,fpr,fnr,tnr,acc), show.info = T,models = TRUE)
+
+}
+```
+
+rf.pred<- predict(getLearnerModel(result$models[[1]]),newdata = test)
+
+```
